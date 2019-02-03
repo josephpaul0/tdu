@@ -38,6 +38,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 type file struct { // File information for each scanned item
@@ -71,14 +72,46 @@ type s_scan struct { // Global variables
 	nBlockDevices int64             // number of block devices
 	inodeMap      map[uint64]string // inode number to file path
 	currentDevice uint64            // device number of current partition
-	maxShownLines int64             // number of biggest files to display
+	maxShownLines int64             // number of depth 1 items to display
+	maxBigFiles   int64             // number of biggest files to display
+	maxWidth      int64             // display width (tty columns)
+	allfiles      []file
+}
+
+func getTtyWidth() int64 {
+	wss := struct {
+		Row    uint16
+		Col    uint16
+		Xpixel uint16
+		Ypixel uint16
+	}{}
+	ws := &wss
+	stdin := uintptr(syscall.Stdin)
+	cmd := uintptr(syscall.TIOCGWINSZ)
+	p := uintptr(unsafe.Pointer(ws))
+	ret, _, errno := syscall.Syscall(syscall.SYS_IOCTL, stdin, cmd, p)
+	if int(ret) == -1 {
+		panic(errno)
+	}
+	//fmt.Printf("  TTY cols=%d lines=%d\n", ws.Col, ws.Row)
+	return int64(ws.Col)
 }
 
 func newScanStruct() *s_scan {
 	var sc s_scan
 	sc.inodeMap = make(map[uint64]string)
 	sc.maxShownLines = 15 // should be configurable
-	sc.maxNameLen = 37    // with current formatting, stay below 80 columns
+	sc.maxBigFiles = 7    // should be configurable
+	sc.maxWidth = 80
+	w := getTtyWidth()
+	if w >= 72 {
+		if w <= 120 {
+			sc.maxWidth = w
+		} else {
+			sc.maxWidth = 120
+		}
+	}
+	sc.maxNameLen = sc.maxWidth - 43 // formatting: stay below N columns
 	return &sc
 }
 
@@ -266,6 +299,88 @@ func printFileTypes(sc *s_scan) { // Summary of file types with non-zero counter
 	}
 }
 
+func smartTruncate(name string, max int64) string { // cut in the middle
+	l := int64(len(name))
+	if l <= max {
+		return name
+	}
+	start := max/2 - 4
+	end := max - (start + 1)
+	p1 := name[0:start]
+	p2 := "~"
+	p3 := name[l-end:]
+	name = p1 + p2 + p3
+	return name
+}
+
+func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
+	f, err := fullStat(sc, path, depth)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	if f.isOtherFs {
+		return f, nil
+	}
+	if f.isSymlink || !f.isDir {
+		if files != nil {
+			*files = append(*files, *f)
+		}
+		sc.allfiles = append(sc.allfiles, *f)
+		return f, nil
+	}
+
+	fs, err := ioutil.ReadDir(path)
+	if err != nil {
+		sc.nDenied++
+	}
+	var size, du, items int64 = f.size, f.diskUsage, 0
+	var ptr *[]file
+	for _, i := range fs { // Calculate total size by recursive scanning
+		ptr = files
+		if depth > 1 {
+			ptr = nil // Forget details for deep directories
+		}
+		items++
+		cf, err := scan(sc, ptr, path+"/"+i.Name(), depth+1)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		size += cf.size
+		du += cf.diskUsage
+		items += cf.items
+	}
+	fo := file{path: path, name: f.name, size: size, diskUsage: du,
+		isDir: true, depth: depth, items: items}
+	if depth > 1 && files != nil {
+		*files = append(*files, fo)
+	}
+	return &fo, nil
+}
+
+func showmax(sc *s_scan, total *file) {
+	sort.Sort(szDesc(sc.allfiles)) // sort biggest files by descending size
+	fmt.Println()
+	fmt.Println("  --------- BIGGEST FILES -------------")
+	var i, sum, rsum int64 = 0, 0, 0
+	fi := sc.allfiles
+	for _, f := range fi {
+		i++
+		if i > sc.maxBigFiles {
+			rsum += f.diskUsage
+			continue
+		}
+		f.path = f.path[2:]
+		f.path = smartTruncate(f.path, sc.maxNameLen+18)
+		fmt.Printf("%3d.%s| %s\n", i, fmtSz(f.diskUsage), f.path)
+		sum += f.diskUsage
+	}
+	x := "  =%13s| %.02f%% of total disk usage\n"
+	p := float64(sum*100.0) / float64(total.diskUsage)
+	fmt.Printf(x, fmtSz(sum), p)
+}
+
 func show(sc *s_scan, fi []file, total *file) {
 	sort.Sort(szDesc(fi))    // sort files and folders by descending size
 	var fmtNameLen int64 = 7 // minimum for the total line
@@ -295,7 +410,7 @@ func show(sc *s_scan, fi []file, total *file) {
 	if fmtNameLen >= sc.maxNameLen {
 		fmtNameLen = sc.maxNameLen
 	}
-	var strfmt = "%3d. %" + fmt.Sprintf("%d", fmtNameLen) + "s | %s|%6.2f %%"
+	var strfmt = "%3d. %" + fmt.Sprintf("%d", fmtNameLen) + "s | %s|%6.2f%%"
 	i = 0
 	for _, f := range fi {
 		if !f.isDir && sc.nFiles == 0 { // ignore special files
@@ -308,15 +423,7 @@ func show(sc *s_scan, fi []file, total *file) {
 		if f.isDir {
 			f.name += "/"
 		}
-		l := int64(len(f.name))
-		if l > sc.maxNameLen { // Truncate name in the middle
-			start := sc.maxNameLen/2 - 4
-			end := sc.maxNameLen - (start + 1)
-			p1 := f.name[0:start]
-			p2 := "~"
-			p3 := f.name[l-end:]
-			f.name = p1 + p2 + p3
-		}
+		f.name = smartTruncate(f.name, sc.maxNameLen)
 		var p float64 = 0
 		if total.diskUsage > 0 {
 			p = float64(f.diskUsage*100.0) / float64(total.diskUsage)
@@ -331,56 +438,12 @@ func show(sc *s_scan, fi []file, total *file) {
 	strfmt = "%" + fmt.Sprintf("%d", fmtNameLen) + "s | %s|"
 	if rDiskUsage > 0 {
 		p := float64(rDiskUsage*100.0) / float64(total.diskUsage)
-		s := strfmt + "%6.2f %%| %6d items\n"
+		s := strfmt + "%6.2f%%| %6d items\n"
 		fmt.Printf(s, "REMAINING", fmtSz(rDiskUsage), p, rItems)
 	}
 	fmt.Printf(strfmt, "TOTAL", fmtSz(total.diskUsage))
 	printFileTypes(sc)
 	fmt.Println()
-}
-
-func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
-	f, err := fullStat(sc, path, depth)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-	if f.isOtherFs {
-		return f, nil
-	}
-	if f.isSymlink || !f.isDir {
-		if files != nil {
-			*files = append(*files, *f)
-		}
-		return f, nil
-	}
-	fs, err := ioutil.ReadDir(path)
-	if err != nil {
-		sc.nDenied++
-	}
-	var size, du, items int64 = f.size, f.diskUsage, 0
-	var ptr *[]file
-	for _, i := range fs { // Calculate total size by recursive scanning
-		ptr = files
-		if depth > 1 {
-			ptr = nil // Forget details for deep directories
-		}
-		items++
-		cf, err := scan(sc, ptr, path+"/"+i.Name(), depth+1)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		size += cf.size
-		du += cf.diskUsage
-		items += cf.items
-	}
-	fo := file{path: path, name: f.name, size: size, diskUsage: du,
-		isDir: true, depth: depth, items: items}
-	if depth > 1 && files != nil {
-		*files = append(*files, fo)
-	}
-	return &fo, nil
 }
 
 /* Check command line arguments and change working directory if needed */
@@ -413,15 +476,16 @@ func usage() string {
  * 3. sort results and output a list of biggest items.
  */
 func main() {
-	fmt.Println("\n=========== Top Disk Usage v1.18 (GNU GPL) ===========\n")
+	fmt.Println("\n=========== Top Disk Usage v1.20 (GNU GPL) ===========\n")
 	fmt.Println("  Operating system: " + runtime.GOOS)
 	d := usage() // Step 1
 	start := time.Now()
-	fmt.Printf("  Scanning [%s]...\n", d)
 	sc := newScanStruct()
 	var fi []file
+	fmt.Printf("  Scanning [%s]...\n", d)
 	t, _ := scan(sc, &fi, ".", 1) // Step 2
 	show(sc, fi, t)               // Step 3
+	showmax(sc, t)
 	elapsed := time.Since(start)
 	fmt.Printf("\n  Total time: %.3f s\n\n", elapsed.Seconds())
 }
