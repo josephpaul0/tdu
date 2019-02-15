@@ -1,3 +1,10 @@
+2019-02-15  Version 1.24
+	* Detect Windows Subsystem for Linux on Windows 10
+	* Adaptative column width for sizes and items
+	* Read info from /proc/mounts
+	* Add map of known filesystems
+	* Show partition details about size and inodes
+
 2019-02-05  Version 1.22
 	* Show total items
 	* Show maximum subdirectory depth and deepest path
