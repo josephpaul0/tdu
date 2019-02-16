@@ -1,0 +1,43 @@
+$ tdu /usr/lib
+
+=========== Top Disk Usage v1.24 (GNU GPL) ===========
+
+  OS: linux, scanning [/usr/lib]...
+  Partition: (8,33) /dev/sdc1 ext4 rw,noatime,nobarrier
+  Inodes   :   3178496 Avail:   2710229 Used:    468267 (14%)
+  Size (kb):  49719872 Avail:  36059620 Used:  13660252 (27%)
+
+  1.  x86_64-linux-gnu/| 1635360 Kb| 48.68%| 10635 items
+  2.       libreoffice/|  302096 Kb|  8.99%|  3760 items
+  3.               gcc/|  241404 Kb|  7.19%|   360 items
+  4.               jvm/|  196748 Kb|  5.86%|   461 items
+  5.           firefox/|  178220 Kb|  5.30%|    74 items
+  6.       thunderbird/|  161304 Kb|  4.80%|    69 items
+  7.           go-1.10/|  146472 Kb|  4.36%|   458 items
+  8.        virtualbox/|  139376 Kb|  4.15%|   232 items
+  9.         python2.7/|   72472 Kb|  2.16%|  2969 items
+ 10.             debug/|   39724 Kb|  1.18%|   289 items
+ 11.           python3/|   35320 Kb|  1.05%|  2785 items
+ 12.         python3.6/|   24868 Kb|  0.74%|  1541 items
+ 13.          git-core/|   22192 Kb|  0.66%|   184 items
+ 14.  libgdal.so.20.3.2|   16172 Kb|  0.48%
+ 15.              cups/|   11780 Kb|  0.35%|   122 items
+              REMAINING|  136072 Kb|  4.05%|  3706 items
+                  TOTAL| 3359592 Kb|
+          Apparent size| 3433547 Kb|
+
+  Item: 27753, Dir: 2499, File: 22599, Symlink: 2655, Hardlink: 134, Depth: 11
+  Deepest: /usr/lib/go-1.10/pkg/linux_amd64/cmd/vendor/github.com/google/pprof/internal
+
+  --------- BIGGEST FILES -------------
+  1.   152428 Kb| jvm/java-11-openjdk-amd64/lib/modules
+  2.   111240 Kb| firefox/libxul.so
+  3.   108312 Kb| thunderbird/libxul.so
+  4.    79792 Kb| x86_64-linux-gnu/libwireshark.so.11.1.6
+  5.    64952 Kb| gcc/x86_64-linux-gnu/8/libgo.a
+  6.    64596 Kb| libreoffice/program/libmergedlo.so
+  7.    63940 Kb| x86_64-linux-gnu/libLLVM-7.so.1
+  =    645260 Kb| 19.21% of total disk usage
+
+  Total time: 1.493 s
+
