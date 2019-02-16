@@ -24,3 +24,6 @@ Project information:
 - Homepage: https://bitbucket.org/josephpaul0/tdu
 - License:  GNU General Public Licence version 2.
 
+Screenshot
+----------
+![Terminal](doc/tdu_output.png)
