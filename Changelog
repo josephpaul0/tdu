@@ -1,3 +1,9 @@
+2019-02-18  Version 1.26
+	* Drastically reduce memory usage
+	* Show longest directory path
+	* Show longest filename
+	* Add some command line parameters
+
 2019-02-15  Version 1.24
 	* Detect Windows Subsystem for Linux on Windows 10
 	* Adaptative column width for sizes and items

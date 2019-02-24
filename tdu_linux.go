@@ -1,5 +1,15 @@
 // +build linux
 
+/* Top Disk Usage.
+ * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
+ * https://bitbucket.org/josephpaul0/tdu
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ */
+
 package main
 
 import (
@@ -322,11 +332,9 @@ func sysStat(sc *s_scan, f *file) error {
 		if !f.isOtherFs { // Other FS may have a same inode number (root=2)
 			f.diskUsage = 0
 			sc.nHardlinks++
-			//orig := sc.ino[f.ino]
-			//fmt.Printf("Hardlink (ino=%d): %s [%s]\n", f.ino, f.fullpath, orig)
 		}
-	} else { // path from the first occurence of inode is saved
-		sc.inodes[f.inode] = f.fullpath
+	} else { // counter is saved
+		sc.inodes[f.inode]++
 	}
 	return nil
 }
