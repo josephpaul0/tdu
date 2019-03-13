@@ -38,6 +38,7 @@ import (
 )
 
 const (
+	prg_VERSION       = "1.28"
 	dft_MAXSHOWNLINES = 15
 	dft_MAXBIGFILES   = 7
 )
@@ -51,6 +52,7 @@ type file struct { // File information for each scanned item
 	isSymlink  bool
 	isOtherFs  bool
 	isSpecial  bool
+	readError  bool
 	size       int64
 	diskUsage  int64
 	depth      int64
@@ -66,37 +68,40 @@ type file struct { // File information for each scanned item
 type ino_map map[uint64]uint16 // map of inode number and counter
 
 type s_scan struct { // Global variables
-	nErrors       int64   // number of Lstat errors
-	nDenied       int64   // number of access denied
-	nItems        int64   // number of scanned items
-	nFiles        int64   // number of files
-	nDirs         int64   // number of directories
-	nSymlinks     int64   // number of symlinks
-	nHardlinks    int64   // number of hardlinks
-	maxNameLen    int64   // max filename length for depth = 1
-	nSockets      int64   // number of sockets
-	nCharDevices  int64   // number of character devices
-	nBlockDevices int64   // number of block devices
-	maxWidth      int64   // display width (tty columns)
-	reachedDepth  int64   // maximum directory depth reached
-	maxPathLen    int64   // maximum directory path length
-	maxFNameLen   int64   // maximum filename length
-	currentDevice uint64  // device number of current partition
-	maxShownLines int     // number of depth 1 items to display
-	maxBigFiles   int     // number of biggest files to display
-	wsl           bool    // Windows Subsystem for Linux
-	partinfo      bool    // found info about partition
-	foundBoundary bool    // found other filesystems
-	hideMax       bool    // hide deepest and longest paths
-	deepestPath   string  // deepest subdirectory reached
-	longestPath   string  // longest directory path
-	longestFName  string  // longest filename
-	os            string  // operating system
-	fsType        string  // FS type from /proc/mounts
-	partition     string  // current partition
-	mountOptions  string  // mount options from /proc/mounts
-	pathSeparator string  // os.PathSeparator as string
-	inodes        ino_map // inode number to file path
+	nErrors       int64    // number of Lstat errors
+	nDenied       int64    // number of access denied
+	nItems        int64    // number of scanned items
+	nFiles        int64    // number of files
+	nDirs         int64    // number of directories
+	nSymlinks     int64    // number of symlinks
+	nHardlinks    int64    // number of hardlinks
+	maxNameLen    int64    // max filename length for depth = 1
+	nSockets      int64    // number of sockets
+	nCharDevices  int64    // number of character devices
+	nBlockDevices int64    // number of block devices
+	maxWidth      int64    // display width (tty columns)
+	reachedDepth  int64    // maximum directory depth reached
+	maxPathLen    int64    // maximum directory path length
+	maxFNameLen   int64    // maximum filename length
+	currentDevice uint64   // device number of current partition
+	maxShownLines int      // number of depth 1 items to display
+	maxBigFiles   int      // number of biggest files to display
+	wsl           bool     // Windows Subsystem for Linux
+	partinfo      bool     // found info about partition
+	foundBoundary bool     // found other filesystems
+	hideMax       bool     // hide deepest and longest paths
+	export        bool     // export result to Ncdu's JSON format
+	exportPath    string   // path to exported file
+	exportFile    *os.File // exported file
+	deepestPath   string   // deepest subdirectory reached
+	longestPath   string   // longest directory path
+	longestFName  string   // longest filename
+	os            string   // operating system
+	fsType        string   // FS type from /proc/mounts
+	partition     string   // current partition
+	mountOptions  string   // mount options from /proc/mounts
+	pathSeparator string   // os.PathSeparator as string
+	inodes        ino_map  // inode number to file path
 	bigfiles      []file
 	start         time.Time // time at process start
 }
@@ -307,7 +312,12 @@ func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
 		// fmt.Println(err)
 		return nil, err
 	}
+
+	if !f.isDir {
+		ncduAdd(sc, f)
+	}
 	if f.isOtherFs {
+		ncduAdd(sc, f)
 		return f, nil
 	}
 	if f.isSymlink || !f.isDir {
@@ -325,10 +335,20 @@ func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
 	fs, err := ioutil.ReadDir(path)
 	if err != nil {
 		sc.nDenied++
+		f.readError = true
+		// fmt.Printf("ReadDir err on \"%s\", len(fs)=%d\n", path, len(fs))
 	}
+
+	ncduOpenDir(sc)
+	ncduAdd(sc, f)
+
 	var size, du, items int64 = f.size, f.diskUsage, 0
 	var ptr *[]file
-	for _, i := range fs { // Calculate total size by recursive scanning
+	l := len(fs)
+	if l > 0 {
+		ncduNext(sc)
+	}
+	for n, i := range fs { // Calculate total size by recursive scanning
 		ptr = files
 		if depth > 1 {
 			ptr = nil // Forget details for deep directories
@@ -345,6 +365,9 @@ func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
 			//fmt.Println(err)
 			continue
 		}
+		if n < l-1 {
+			ncduNext(sc)
+		}
 		size += cf.size
 		du += cf.diskUsage
 		items += cf.items
@@ -354,6 +377,7 @@ func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
 	if depth > 1 && files != nil {
 		*files = append(*files, fo)
 	}
+	ncduCloseDir(sc)
 	return &fo, nil
 }
 
@@ -501,9 +525,15 @@ func usage(sc *s_scan) {
 	}
 	mb := flag.Int("b", dft_MAXBIGFILES, "Number of big files shown")
 	ml := flag.Int("l", dft_MAXSHOWNLINES, "Number of depth1 items shown")
+	ex := flag.String("o", "", "Export result to Ncdu's JSON format")
 	nm := flag.Bool("nomax", false, "Do not show deepest and longest paths")
 	vs := flag.Bool("version", false, "Program info and usage")
+	sl := flag.Bool("license", false, "Show the GNU General Public License V2")
 	flag.Parse() // NArg (int)
+	if *sl {
+		showLicense()
+		os.Exit(2)
+	}
 	if *vs {
 		flag.Usage()
 		os.Exit(2)
@@ -517,6 +547,10 @@ func usage(sc *s_scan) {
 		sc.maxBigFiles = *mb
 	}
 	sc.hideMax = *nm
+	if *ex != "" {
+		sc.export = true
+		sc.exportPath = *ex
+	}
 }
 
 func showElapsed(sc *s_scan) {
@@ -532,7 +566,7 @@ func showElapsed(sc *s_scan) {
  */
 func main() {
 	start := time.Now()
-	fmt.Println("\n=========== Top Disk Usage v1.26 (GNU GPL) ===========\n")
+	fmt.Println("\n=========== Top Disk Usage v1.28 (GNU GPL) ===========\n")
 	sc := newScanStruct(start)
 	usage(sc)
 	d := changeDir(flag.Args()) // step 1
@@ -540,9 +574,11 @@ func main() {
 	detectOS(sc)
 	fmt.Printf("  OS: %s,", sc.os)
 	fmt.Printf(" scanning [%s]...\n", d)
+	ncduInit(sc)
 	var fi []file
 	t, _ := scan(sc, &fi, ".", 1) // Step 2
 	show(sc, fi, t)               // Step 3
 	showmax(sc, t)                // step 4
+	ncduEnd(sc)
 	showElapsed(sc)
 }

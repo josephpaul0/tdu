@@ -1,0 +1,69 @@
+.TH TDU 1 "2019-03-12" "1.28" "Top Disk Usage manual"
+
+.SH NAME
+tdu \- get information about largest files and directories
+
+.SH SYNOPSIS
+ tdu [options] [directory]
+
+.SH DESCRIPTION
+tdu (Top Disk Usage) shows which directories and files are using your disk space.
+.br
+It is written in Go and is inspired by the well-known UNIX
+.B du
+command.
+.PP
+
+It scans recursively all subdirectories starting at <directory> or at current
+directory by default.
+
+.SH FEATURES
+* Counts files, directories, links, sockets, pipes.
+.br
+* Shows deepest directory path.
+.br
+* Shows longest file path.
+.br
+* Display information about the filesystem (type, mount options, size, inodes).
+
+.SH OPTIONS
+.TP
+.BI \-l \ n
+Number of depth1 items shown (default 15)
+.TP
+.BI \-b \ n
+Number of big files shown (default 7)
+.TP
+.BR \-\-nomax
+Do not show deepest and longest paths
+.TP
+.BI \-o \ file
+Export result to Ncdu JSON format
+.br
+(https://dev.yorhel.nl/ncdu/jsonfmt)
+.TP
+.BR \-\-version
+Program info and usage
+.TP
+.BR \-\-license
+Show the GNU General Public License V2
+.TP
+.BR \-\-help
+Program help
+
+.SH LIMITS
+Does not cross filesystem boundaries. It behaves like
+.B du \-skx
+
+.SH COPYRIGHT
+Copyright \(co 2019 Joseph Paul <joseph.paul1@gmx.com>.
+.br
+License GPLv2+: GNU GPL version 2 or later.
+
+.SH WEBSITE
+https://bitbucket.org/josephpaul0/tdu
+
+.SH "SEE ALSO"
+.BR du (1),
+.BR ncdu (1)
+

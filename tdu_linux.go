@@ -333,8 +333,8 @@ func sysStat(sc *s_scan, f *file) error {
 			f.diskUsage = 0
 			sc.nHardlinks++
 		}
-	} else { // counter is saved
-		sc.inodes[f.inode]++
 	}
+	// Each occurrence of inode is counted
+	sc.inodes[f.inode]++
 	return nil
 }

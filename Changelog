@@ -1,3 +1,8 @@
+2019-03-12  Version 1.28
+	* Export to Ncdu JSON format (https://dev.yorhel.nl/ncdu/jsonfmt)
+	* Add man page
+	* Add option to show the program license
+
 2019-02-18  Version 1.26
 	* Drastically reduce memory usage
 	* Show longest directory path
