@@ -25,6 +25,7 @@ Usage: tdu [options] [directory]
 
 ##Quick start guide for advanced users / developers
 - You need a Go compiler
+- Do not use Go v1.12 or v1.12.1 on Windows, because of this issue: https://github.com/golang/go/issues/30883
 - Clone the git repository or download the source archive.
 - Run 'make' to build the binary
 
