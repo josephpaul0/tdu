@@ -9,3 +9,8 @@ release:
 # gccgo package needs to be installed first.
 gcc:
 	gccgo -o tdu_gccgo tdu.go
+
+# Cross compile for Windows
+win: tdu_windows.go
+	GOOS=windows go build -ldflags '-s -w'
+

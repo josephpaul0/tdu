@@ -1,4 +1,5 @@
 // +build !linux
+// +build !windows
 
 /* Top Disk Usage.
  * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
@@ -14,10 +15,19 @@
 
 package main
 
-// Console width is not yet computed on non-Linux OS
-func getTtyWidth() int64 {
+func osInit() bool {
+	return true
+}
+func osEnd() bool {
+	return true
+}
+
+// Console width is fixed on other systems
+func getTtyWidth() int {
 	return 80
 }
+
+func clearTty() {} // OS Specific
 
 // Disk usage is inaccurate because appropriate syscall is not yet implemented
 func sysStat(sc *s_scan, f *file) error {

@@ -167,7 +167,19 @@ var fsType = map[int64]string{
 	0xff534d42: "cifs",
 }
 
-func getTtyWidth() int64 {
+func osInit() bool {
+	return true
+}
+
+func osEnd() bool {
+	return true
+}
+
+func clearTty() {
+	fmt.Print("\033[H\033[2J") // Clear the console
+}
+
+func getTtyWidth() int {
 	wss := struct {
 		Row    uint16
 		Col    uint16
@@ -183,7 +195,7 @@ func getTtyWidth() int64 {
 		panic(errno)
 	}
 	//fmt.Printf("  TTY cols=%d lines=%d\n", ws.Col, ws.Row)
-	return int64(ws.Col)
+	return int(ws.Col)
 }
 
 func scanMount(sc *s_scan) bool {
@@ -324,8 +336,9 @@ func sysStat(sc *s_scan, f *file) error {
 	if f.deviceId != sc.currentDevice {
 		f.isOtherFs = true
 		sc.foundBoundary = true
-		fmt.Printf("  Not crossing FS boundary at %-15s %s\n",
+		m := fmt.Sprintf("  Not crossing FS boundary at %-15s %s",
 			f.fullpath, getPartition(sc, f.deviceId))
+		push(sc, m)
 	}
 	_, ok = sc.inodes[f.inode]
 	if ok { // Hardlink means inode used more than once in map

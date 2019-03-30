@@ -27,7 +27,7 @@ Usage: tdu [options] [directory]
 - You need a Go compiler
 - Do not use Go v1.12 or v1.12.1 on Windows, because of this issue: https://github.com/golang/go/issues/30883
 - Clone the git repository or download the source archive.
-- Run 'make' to build the binary
+- Run 'make' or 'build.cmd' to build the binary
 
 ##Other Operating Systems
 - If you use FreeBSD or macOS, please test the code and submit patches for supporting those operating systems.

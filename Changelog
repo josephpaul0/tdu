@@ -1,3 +1,9 @@
+2019-03-30  Version 1.30
+	* Show scanning progress
+	* [Windows] Add build.cmd script to compile tdu.exe
+	* [Windows] Inform user to run tdu.exe from the command line
+	* [Windows] console clear and resize, enable scrollback.
+
 2019-03-12  Version 1.28
 	* Export to Ncdu JSON format (https://dev.yorhel.nl/ncdu/jsonfmt)
 	* Add man page
