@@ -11,11 +11,22 @@ Usage: tdu [options] [directory]
 
   -l n       Number of depth1 items shown (default 15)
 
-  --nomax    Do not show deepest and longest paths
+  --max      Show deepest and longest paths
 
   -o file    Export result to Ncdu JSON format
              (https://dev.yorhel.nl/ncdu/jsonfmt)
 
+  -e n       Number of empty directories shown (default 0)
+
+  -d n       Number of access denied directories shown (default 0)
+
+  -f n       Number of character and block devices shown (default 0)
+
+  -t n       Number of sockets and named pipes shown (default 0)
+
+  -s n       Number of file status errors shown (default 0)
+
+  --human    Print sizes in human readable format
   --version  Program info and usage
   --license  Show the GNU General Public License V2
   --help     Program help

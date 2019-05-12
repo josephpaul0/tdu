@@ -38,8 +38,13 @@ import (
 )
 
 const (
-	prg_VERSION       = "1.30"
+	prg_VERSION       = "1.32"
 	dft_MAXSHOWNLINES = 15
+	dft_MAXEMPTYDIRS  = 0
+	dft_MAXDENIEDDIRS = 0
+	dft_MAXSTATERROR  = 0
+	dft_MAXSTREAMS    = 0
+	dft_MAXDEVICES    = 0
 	dft_MAXBIGFILES   = 7
 	cst_ENDPROGRESS   = "###"
 	cst_PROGRESSBEAT  = 80 // ms
@@ -75,9 +80,11 @@ type s_scan struct { // Global variables
 	nItems        int64    // number of scanned items
 	nFiles        int64    // number of files
 	nDirs         int64    // number of directories
+	nEmptyDir     int64    // number of empty directories
 	nSymlinks     int64    // number of symlinks
 	nHardlinks    int64    // number of hardlinks
 	nSockets      int64    // number of sockets
+	nPipes        int64    // number of named pipes
 	nCharDevices  int64    // number of character devices
 	nBlockDevices int64    // number of block devices
 	reachedDepth  int64    // maximum directory depth reached
@@ -88,11 +95,17 @@ type s_scan struct { // Global variables
 	maxNameLen    int      // max filename length for depth = 1
 	maxShownLines int      // number of depth 1 items to display
 	maxBigFiles   int      // number of biggest files to display
+	maxEmptyDirs  int      // number of empty directories to display
+	maxDenied     int      // number of denied directories to display
+	maxErrors     int      // number of 'lstat' errors to display
+	maxStreams    int      // number of sockets and named pipes to display
+	maxDevices    int      // number of character and block devices to display
 	wsl           bool     // Windows Subsystem for Linux
 	partinfo      bool     // found info about partition
 	foundBoundary bool     // found other filesystems
-	hideMax       bool     // hide deepest and longest paths
+	showMax       bool     // show deepest and longest paths
 	export        bool     // export result to Ncdu's JSON format
+	humanReadable bool     // print sizes in human readable format
 	exportPath    string   // path to exported file
 	exportFile    *os.File // exported file
 	deepestPath   string   // deepest subdirectory reached
@@ -105,6 +118,11 @@ type s_scan struct { // Global variables
 	pathSeparator string   // os.PathSeparator as string
 	inodes        ino_map  // inode number to file path
 	bigfiles      []file
+	emptydirs     []string
+	denieddirs    []string
+	errors        []error
+	streams       []string  // sockets and named pipes
+	devices       []string  // character and block devices
 	start         time.Time // time at process start
 	msg           chan string
 	done          chan bool
@@ -156,7 +174,31 @@ func (a szDesc) Len() int           { return len(a) }
 func (a szDesc) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a szDesc) Less(i, j int) bool { return a[i].diskUsage > a[j].diskUsage }
 
-func fmtSz(size int64) string { // Formats in kilobytes
+func fmtSzHuman(size int64) string {
+	var sz = float64(size)
+	var unit string = "Kb"
+	var d float64 = 1024
+	units := []string{"Kb", "Mb", "Gb", "Tb", "Pb"}
+	powers := []float64{2.0, 3.0, 4.0, 5.0, 6.0}
+	for i, p := range powers {
+		c := math.Pow(1024, p-1)
+		if sz > c*2 {
+			unit = units[i]
+			d = c
+		}
+	}
+	sz /= d
+	if unit == "Kb" {
+		return fmt.Sprintf("%d %s", int64(sz), unit)
+	} else {
+		return fmt.Sprintf("%.1f %s", sz, unit)
+	}
+}
+
+func fmtSz(sc *s_scan, size int64) string { // Formats size
+	if sc.humanReadable {
+		return fmtSzHuman(size)
+	}
 	var sz = float64(size)
 	var power float64 = 2.0
 	unit := "Kb"
@@ -184,6 +226,9 @@ func fullStat(sc *s_scan, path string, depth int64) (*file, error) {
 	fi, err := os.Lstat(path)
 	if err != nil {
 		sc.nErrors++
+		if sc.maxErrors > 0 {
+			sc.errors = append(sc.errors, err)
+		}
 		// fmt.Println(err)
 		return nil, err
 	}
@@ -232,21 +277,38 @@ func fullStat(sc *s_scan, path string, depth int64) (*file, error) {
 
 	case mode&os.ModeNamedPipe != 0:
 		//fmt.Printf("  Named pipe: [%s]\n", f.fullpath)
+		sc.nPipes++
+		if sc.maxStreams > 0 {
+			s := fmt.Sprintf("[P] %s", f.fullpath)
+			sc.streams = append(sc.streams, s)
+		}
 		f.isSpecial = true
 
 	case mode&os.ModeCharDevice != 0:
 		//fmt.Printf("  Character Device: [%s]\n", f.fullpath)
 		sc.nCharDevices++
+		if sc.maxDevices > 0 {
+			s := fmt.Sprintf("[C] %s", f.fullpath)
+			sc.devices = append(sc.devices, s)
+		}
 		f.isSpecial = true
 
 	case mode&os.ModeDevice != 0:
 		//fmt.Printf("  Block device: [%s]\n", f.fullpath)
 		sc.nBlockDevices++
+		if sc.maxDevices > 0 {
+			s := fmt.Sprintf("[B] %s", f.fullpath)
+			sc.devices = append(sc.devices, s)
+		}
 		f.isSpecial = true
 
 	case mode&os.ModeSocket != 0:
 		//fmt.Printf("  Socket: [%s]\n", f.fullpath)
 		sc.nSockets++
+		if sc.maxStreams > 0 {
+			s := fmt.Sprintf("[S] %s", f.fullpath)
+			sc.streams = append(sc.streams, s)
+		}
 		f.isSpecial = true
 
 	default:
@@ -263,6 +325,9 @@ func fullStat(sc *s_scan, path string, depth int64) (*file, error) {
 
 func printFileTypes(sc *s_scan) { // Summary of file types with non-zero counter
 	fmt.Printf("  Item: %d, Dir: %d, File: %d", sc.nItems, sc.nDirs, sc.nFiles)
+	if sc.nEmptyDir > 0 {
+		fmt.Printf(", Empty Dir: %d", sc.nEmptyDir)
+	}
 	if sc.nSymlinks > 0 {
 		fmt.Printf(", Symlink: %d", sc.nSymlinks)
 	}
@@ -285,7 +350,7 @@ func printFileTypes(sc *s_scan) { // Summary of file types with non-zero counter
 		fmt.Printf(", Character device: %d", sc.nCharDevices)
 	}
 	fmt.Printf(", Depth: %d\n", sc.reachedDepth)
-	if !sc.hideMax {
+	if sc.showMax {
 		fmt.Printf("  Deepest: %s\n", sc.deepestPath)
 		fmt.Printf("  Longest path (%d): %s\n", sc.maxPathLen, sc.longestPath)
 		fmt.Printf("  Longest name (%d): %s", sc.maxFNameLen, sc.longestFName)
@@ -343,6 +408,9 @@ func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
 	if err != nil {
 		sc.nDenied++
 		f.readError = true
+		if sc.maxDenied > 0 {
+			sc.denieddirs = append(sc.denieddirs, f.path)
+		}
 		// fmt.Printf("ReadDir err on \"%s\", len(fs)=%d\n", path, len(fs))
 	}
 
@@ -354,6 +422,12 @@ func scan(sc *s_scan, files *[]file, path string, depth int64) (*file, error) {
 	l := len(fs)
 	if l > 0 {
 		ncduNext(sc)
+	}
+	if l == 0 {
+		sc.nEmptyDir++
+		if sc.maxEmptyDirs > 0 {
+			sc.emptydirs = append(sc.emptydirs, f.path)
+		}
 	}
 	for n, i := range fs { // Calculate total size by recursive scanning
 		ptr = files
@@ -408,12 +482,87 @@ func showmax(sc *s_scan, total *file) {
 			continue
 		}
 		f.path = smartTruncate(f.path, sc.maxNameLen+18)
-		fmt.Printf("%3d.%12s| %s\n", i, fmtSz(f.diskUsage), f.path)
+		fmt.Printf("%3d.%12s| %s\n", i, fmtSz(sc, f.diskUsage), f.path)
 		sum += f.diskUsage
 	}
 	x := "  =%13s| %.02f%% of total disk usage\n"
 	p := float64(sum*100.0) / float64(total.diskUsage)
-	fmt.Printf(x, fmtSz(sum), p)
+	fmt.Printf(x, fmtSz(sc, sum), p)
+}
+
+func showempty(sc *s_scan) {
+	if sc.maxEmptyDirs <= 0 || len(sc.emptydirs) == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  --------- EMPTY DIRECTORIES ---------")
+	for i, d := range sc.emptydirs {
+		i++
+		if i > sc.maxEmptyDirs {
+			break
+		}
+		fmt.Printf("%3d. %s\n", i, d)
+	}
+}
+
+func showdenied(sc *s_scan) {
+	if sc.maxDenied <= 0 || len(sc.denieddirs) == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  --------- ACCESS DENIED -------------")
+	for i, d := range sc.denieddirs {
+		i++
+		if i > sc.maxDenied {
+			break
+		}
+		fmt.Printf("%3d. %s\n", i, d)
+	}
+}
+
+func showerrors(sc *s_scan) {
+	if sc.maxErrors <= 0 || len(sc.errors) == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  --------- FILE STATUS ERROR ---------")
+	for i, d := range sc.errors {
+		i++
+		if i > sc.maxErrors {
+			break
+		}
+		fmt.Printf("%3d. %s\n", i, d)
+	}
+}
+
+func showstreams(sc *s_scan) {
+	if sc.maxStreams <= 0 || len(sc.streams) == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  --------- SOCKETS AND PIPES ---------")
+	for i, d := range sc.streams {
+		i++
+		if i > sc.maxStreams {
+			break
+		}
+		fmt.Printf("%3d. %s\n", i, d)
+	}
+}
+
+func showdevices(sc *s_scan) {
+	if sc.maxDevices <= 0 || len(sc.devices) == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  --------- DEVICES -------------------")
+	for i, d := range sc.devices {
+		i++
+		if i > sc.maxDevices {
+			break
+		}
+		fmt.Printf("%3d. %s\n", i, d)
+	}
 }
 
 func show(sc *s_scan, fi []file, total *file) {
@@ -473,7 +622,7 @@ func show(sc *s_scan, fi []file, total *file) {
 		if total.diskUsage > 0 {
 			p = float64(f.diskUsage*100.0) / float64(total.diskUsage)
 		}
-		fmt.Printf(strfmt, i, f.name, fmtSz(f.diskUsage), p)
+		fmt.Printf(strfmt, i, f.name, fmtSz(sc, f.diskUsage), p)
 		if f.isDir {
 			fmt.Printf("|"+mf+" items", f.items)
 		}
@@ -483,11 +632,11 @@ func show(sc *s_scan, fi []file, total *file) {
 	if rDiskUsage > 0 {
 		p := float64(rDiskUsage*100.0) / float64(total.diskUsage)
 		s := strfmt + "%6.2f%%|" + mf + " items\n"
-		fmt.Printf(s, "REMAINING", fmtSz(rDiskUsage), p, rItems)
+		fmt.Printf(s, "REMAINING", fmtSz(sc, rDiskUsage), p, rItems)
 	}
 	strfmt += "\n"
-	fmt.Printf(strfmt, "TOTAL", fmtSz(total.diskUsage))
-	fmt.Printf(strfmt, "Apparent size", fmtSz(total.size))
+	fmt.Printf(strfmt, "TOTAL", fmtSz(sc, total.diskUsage))
+	fmt.Printf(strfmt, "Apparent size", fmtSz(sc, total.size))
 	fmt.Println()
 	printFileTypes(sc)
 }
@@ -532,10 +681,16 @@ func usage(sc *s_scan) []string {
 	}
 	mb := flag.Int("b", dft_MAXBIGFILES, "Number of big files shown")
 	ml := flag.Int("l", dft_MAXSHOWNLINES, "Number of depth1 items shown")
+	me := flag.Int("e", dft_MAXEMPTYDIRS, "Number of empty directories shown (default 0)")
+	md := flag.Int("d", dft_MAXDENIEDDIRS, "Number of access denied directories shown (default 0)")
+	ms := flag.Int("s", dft_MAXSTATERROR, "Number of file status errors shown (default 0)")
+	mf := flag.Int("f", dft_MAXDEVICES, "Number of devices shown (default 0)")
+	mt := flag.Int("t", dft_MAXSTREAMS, "Number of sockets and named pipes shown (default 0)")
 	ex := flag.String("o", "", "Export result to Ncdu's JSON format")
-	nm := flag.Bool("nomax", false, "Do not show deepest and longest paths")
+	nm := flag.Bool("max", false, "Show deepest and longest paths")
 	vs := flag.Bool("version", false, "Program info and usage")
 	sl := flag.Bool("license", false, "Show the GNU General Public License V2")
+	hu := flag.Bool("human", false, "Print sizes in human readable format")
 	flag.Parse() // NArg (int)
 	if *sl {
 		showLicense()
@@ -558,7 +713,28 @@ func usage(sc *s_scan) []string {
 	if *mb >= 0 {
 		sc.maxBigFiles = *mb
 	}
-	sc.hideMax = *nm
+	sc.maxEmptyDirs = dft_MAXEMPTYDIRS
+	if *me >= 0 {
+		sc.maxEmptyDirs = *me
+	}
+	sc.maxDenied = dft_MAXDENIEDDIRS
+	if *md >= 0 {
+		sc.maxDenied = *md
+	}
+	sc.maxErrors = dft_MAXSTATERROR
+	if *ms >= 0 {
+		sc.maxErrors = *ms
+	}
+	sc.maxDevices = dft_MAXDEVICES
+	if *mf >= 0 {
+		sc.maxDevices = *mf
+	}
+	sc.maxStreams = dft_MAXSTREAMS
+	if *mt >= 0 {
+		sc.maxStreams = *mt
+	}
+	sc.showMax = *nm
+	sc.humanReadable = *hu
 	if *ex != "" {
 		sc.export = true
 		sc.exportPath = *ex
@@ -638,8 +814,8 @@ func main() {
 	args := usage(sc)
 	d := relocate(args) // step 1
 	detectOS(sc)
-	getConsoleWidth(sc)
 	clearTty()
+	getConsoleWidth(sc)
 	showTitle()
 	fmt.Printf("  OS: %s %s,", sc.os, runtime.GOARCH)
 	fmt.Printf(" scanning [%s]...\n", d)
@@ -650,6 +826,11 @@ func main() {
 	endProgress(sc)
 	show(sc, fi, t) // Step 3
 	showmax(sc, t)  // step 4
+	showempty(sc)
+	showdenied(sc)
+	showerrors(sc)
+	showstreams(sc)
+	showdevices(sc)
 	ncduEnd(sc)
 	showElapsed(sc)
 	osEnd()

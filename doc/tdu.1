@@ -1,4 +1,4 @@
-.TH TDU 1 "2019-03-12" "1.28" "Top Disk Usage manual"
+.TH TDU 1 "2019-05-12" "1.32" "Top Disk Usage manual"
 
 .SH NAME
 tdu \- get information about largest files and directories
@@ -20,11 +20,13 @@ directory by default.
 .SH FEATURES
 * Counts files, directories, links, sockets, pipes.
 .br
+* Counts empty directories, denied accesses, errors.
+.br
 * Shows deepest directory path.
 .br
 * Shows longest file path.
 .br
-* Display information about the filesystem (type, mount options, size, inodes).
+* Displays information about the filesystem (type, mount options, size, inodes).
 
 .SH OPTIONS
 .TP
@@ -34,8 +36,26 @@ Number of depth1 items shown (default 15)
 .BI \-b \ n
 Number of big files shown (default 7)
 .TP
-.BR \-\-nomax
-Do not show deepest and longest paths
+.BR \-\-max
+Show deepest and longest paths (default no)
+.TP
+.BI \-e \ n
+Number of empty directories shown (default 0)
+.TP
+.BI \-d \ n
+Number of access denied directories shown (default 0)
+.TP
+.BI \-f \ n
+Number of character and block devices shown (default 0)
+.TP
+.BI \-t \ n
+Number of sockets and named pipes shown (default 0)
+.TP
+.BI \-s \ n
+Number of file status errors shown (default 0)
+.TP
+.BR \-\-human
+Print sizes in human readable format (default Kb only)
 .TP
 .BI \-o \ file
 Export result to Ncdu JSON format

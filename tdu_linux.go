@@ -298,18 +298,27 @@ func partInfo(sc *s_scan) {
 	if total > 0 {
 		avail = statfs.Ffree
 		used = total - avail
-		fmt.Printf("  Inodes   :%10d ", total)
+		fmt.Printf("  Inodes  :%11d ", total)
 		fmt.Printf("Avail:%10d ", avail)
 		fmt.Printf("Used:%10d (%d%%)", used, used*100/total)
 		fmt.Println()
 	}
-	total = statfs.Blocks * uint64(statfs.Bsize) / 1024
+	total = statfs.Blocks * uint64(statfs.Bsize)
 	if total > 0 {
-		avail = statfs.Bavail * uint64(statfs.Bsize) / 1024
+		avail = statfs.Bavail * uint64(statfs.Bsize)
 		used = total - avail
-		fmt.Printf("  Size (kb):%10d ", total)
-		fmt.Printf("Avail:%10d ", avail)
-		fmt.Printf("Used:%10d (%d%%)\n", used, used*100/total)
+		if !sc.humanReadable {
+			total /= 1024
+			avail /= 1024
+			used /= 1024
+			fmt.Printf("  Size(kb):%11d ", total)
+			fmt.Printf("Avail:%10d ", avail)
+			fmt.Printf("Used:%10d (%d%%)\n", used, used*100/total)
+		} else {
+			fmt.Printf("  Size    :%11s ", fmtSz(sc, int64(total)))
+			fmt.Printf("Avail:%10s ", fmtSz(sc, int64(avail)))
+			fmt.Printf("Used:%10s (%d%%)\n", fmtSz(sc, int64(used)), used*100/total)
+		}
 	}
 	fmt.Println()
 }

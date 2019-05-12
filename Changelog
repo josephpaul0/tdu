@@ -1,8 +1,19 @@
+2019-05-12  Version 1.32
+	* Fix incorrect truncation of long filenames
+	* Add option to print sizes in human readable format
+	* Add option to show deepest and longest paths (default: no)
+	* Count empty directories
+	* Add option to list empty directories
+	* Add option to list access denied directories
+	* Add option to list sockets and named pipes
+	* Add option to list character and block devices
+	* Add option to show file status errors
+
 2019-03-30  Version 1.30
 	* Show scanning progress
 	* [Windows] Add build.cmd script to compile tdu.exe
 	* [Windows] Inform user to run tdu.exe from the command line
-	* [Windows] console clear and resize, enable scrollback.
+	* [Windows] Console clear and resize, enable scrollback.
 
 2019-03-12  Version 1.28
 	* Export to Ncdu JSON format (https://dev.yorhel.nl/ncdu/jsonfmt)
