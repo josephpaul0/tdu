@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	prg_VERSION       = "1.32"
+	prg_VERSION       = "1.34"
 	dft_MAXSHOWNLINES = 15
 	dft_MAXEMPTYDIRS  = 0
 	dft_MAXDENIEDDIRS = 0
@@ -91,6 +91,7 @@ type s_scan struct { // Global variables
 	maxPathLen    int64    // maximum directory path length
 	maxFNameLen   int64    // maximum filename length
 	currentDevice uint64   // device number of current partition
+	refreshDelay  int64    // delay between progress bar updates
 	maxWidth      int      // display width (tty columns)
 	maxNameLen    int      // max filename length for depth = 1
 	maxShownLines int      // number of depth 1 items to display
@@ -105,6 +106,7 @@ type s_scan struct { // Global variables
 	foundBoundary bool     // found other filesystems
 	showMax       bool     // show deepest and longest paths
 	export        bool     // export result to Ncdu's JSON format
+	tty           bool     // stdout is on a TTY
 	humanReadable bool     // print sizes in human readable format
 	exportPath    string   // path to exported file
 	exportFile    *os.File // exported file
@@ -126,6 +128,7 @@ type s_scan struct { // Global variables
 	start         time.Time // time at process start
 	msg           chan string
 	done          chan bool
+	sys           interface{} // OS functions
 }
 
 func detectOS(sc *s_scan) {
@@ -147,7 +150,7 @@ func detectOS(sc *s_scan) {
 
 func getConsoleWidth(sc *s_scan) {
 	sc.maxWidth = 80
-	w := getTtyWidth()
+	w := getTtyWidth(sc)
 	if w >= 72 {
 		if w <= 120 {
 			sc.maxWidth = w
@@ -158,13 +161,15 @@ func getConsoleWidth(sc *s_scan) {
 	sc.maxNameLen = sc.maxWidth - 43 // formatting: stay below N columns
 }
 
-func newScanStruct(start time.Time) *s_scan {
+func newScanStruct(start time.Time, sys interface{}) *s_scan {
 	var sc s_scan
 	sc.pathSeparator = string(os.PathSeparator)
 	sc.inodes = make(map[uint64]uint16, 256)
 	sc.start = start
 	sc.msg = make(chan string, 32)
 	sc.done = make(chan bool)
+	sc.refreshDelay = cst_PROGRESSBEAT
+	sc.sys = sys
 	return &sc
 }
 
@@ -648,10 +653,6 @@ func changeDir(args []string) (string, error) {
 		dir, _ = os.Getwd()
 		return dir, nil
 	}
-	if len(args) > 1 {
-		e1 := fmt.Errorf("Can only scan one top directory: got %d", len(args))
-		return dir, e1
-	}
 	err := os.Chdir(args[0])
 	if err != nil {
 		e2 := fmt.Errorf("Cannot change directory to %s\n%v", args[0], err)
@@ -668,7 +669,7 @@ func changeDir(args []string) (string, error) {
 func usage(sc *s_scan) []string {
 	flag.Usage = func() {
 		showTitle()
-		fmt.Println(" Copyright (c) 2019 Joseph Paul <joseph.paul1@gmx.com>")
+		fmt.Println(" Copyright (c) 2020 Joseph Paul <joseph.paul1@gmx.com>")
 		fmt.Println(" https://bitbucket.org/josephpaul0/tdu")
 		fmt.Println()
 		fmt.Printf(" Usage: %s [options] [directory]\n", os.Args[0])
@@ -739,6 +740,17 @@ func usage(sc *s_scan) []string {
 		sc.export = true
 		sc.exportPath = *ex
 	}
+	if len(flag.Args()) > 1 {
+		fmt.Println()
+		fmt.Printf("[ERROR] can only scan one top directory: got %d", len(args))
+		fmt.Println()
+		fmt.Println()
+		fmt.Println("[TIP] Use double-quotes around the directory path if it contains spaces.")
+		fmt.Println("[TIP] Example: tdu.exe \"C:\\Program Files\"")
+		fmt.Println()
+		flag.Usage()
+		os.Exit(2)
+	}
 	return args
 }
 
@@ -751,8 +763,9 @@ func showProgress(sc *s_scan) {
 	var i int
 	var m string
 	space := strings.Repeat(" ", 42)
+	fmt.Println()
 	for {
-		time.Sleep(cst_PROGRESSBEAT * time.Millisecond)
+		time.Sleep(time.Duration(sc.refreshDelay) * time.Millisecond)
 		select {
 		case m = <-sc.msg:
 			fmt.Print(space)
@@ -762,8 +775,7 @@ func showProgress(sc *s_scan) {
 			}
 		default:
 			i++
-			n := sc.nErrors + sc.nItems
-			fmt.Printf("  [.... scanning... %6d  ....]\r", n)
+			printProgress(sc)
 		}
 		if m == cst_ENDPROGRESS {
 			break
@@ -774,8 +786,10 @@ func showProgress(sc *s_scan) {
 }
 
 func endProgress(sc *s_scan) {
-	sc.msg <- cst_ENDPROGRESS
-	<-sc.done
+	if sc.tty {
+		sc.msg <- cst_ENDPROGRESS
+		<-sc.done
+	}
 }
 
 func push(sc *s_scan, msg string) {
@@ -790,7 +804,7 @@ func showTitle() {
 	fmt.Println()
 }
 
-func relocate(args []string) string {
+func relocate(sc *s_scan, args []string) string {
 	d, err := changeDir(flag.Args())
 	if err != nil {
 		showTitle()
@@ -801,6 +815,24 @@ func relocate(args []string) string {
 	return d
 }
 
+func showResults(sc *s_scan, fi []file, total *file) {
+	show(sc, fi, total) // Step 3
+	showmax(sc, total)  // step 4
+	showempty(sc)
+	showdenied(sc)
+	showerrors(sc)
+	showstreams(sc)
+	showdevices(sc)
+}
+
+func startProgress(sc *s_scan) {
+	if sc.tty {
+		go showProgress(sc)
+	} else {
+		fmt.Fprintln(os.Stderr, "  Please wait...")
+	}
+}
+
 /* Basically, the process has got several steps:
  * 1. change directory to given path
  * 2. scan all files recursively, collecting 'stat' data
@@ -808,30 +840,24 @@ func relocate(args []string) string {
  * 4. show the largest files at any depth.
  */
 func main() {
-	osInit()
+	_, sys := osInit()
 	start := time.Now()
-	sc := newScanStruct(start)
+	sc := newScanStruct(start, sys)
 	args := usage(sc)
-	d := relocate(args) // step 1
+	d := relocate(sc, args) // step 1
 	detectOS(sc)
-	clearTty()
+	initTty(sc)
 	getConsoleWidth(sc)
 	showTitle()
 	fmt.Printf("  OS: %s %s,", sc.os, runtime.GOARCH)
 	fmt.Printf(" scanning [%s]...\n", d)
 	ncduInit(sc)
-	go showProgress(sc)
+	startProgress(sc)
 	var fi []file
 	t, _ := scan(sc, &fi, ".", 1) // Step 2
 	endProgress(sc)
-	show(sc, fi, t) // Step 3
-	showmax(sc, t)  // step 4
-	showempty(sc)
-	showdenied(sc)
-	showerrors(sc)
-	showstreams(sc)
-	showdevices(sc)
+	showResults(sc, fi, t)
 	ncduEnd(sc)
 	showElapsed(sc)
-	osEnd()
+	osEnd(sys)
 }

@@ -1,4 +1,4 @@
-// +build linux
+// +build darwin freebsd
 
 /* Top Disk Usage.
  * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
@@ -17,5 +17,5 @@ import (
 )
 
 func tcgets() uintptr {
-	return uintptr(syscall.TCGETS)
+	return uintptr(syscall.TIOCGETA)
 }

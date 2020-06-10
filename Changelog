@@ -1,3 +1,12 @@
+2020-06-10  Version 1.34
+	* Add manual in PDF
+	* Add support for FreeBSD 11
+	* Show scanning progress with colours on a tty
+	* Detect when output is redirected to a file
+	* [Windows] Maximize console window
+	* Add support for SSH in non-interactive mode (no tty)
+	* Tested with i386, Amd64, and ARM (Raspberry Pi 3)
+
 2019-05-12  Version 1.32
 	* Fix incorrect truncation of long filenames
 	* Add option to print sizes in human readable format

@@ -1,5 +1,6 @@
 // +build !linux
 // +build !windows
+// +build !freebsd
 
 /* Top Disk Usage.
  * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
@@ -15,6 +16,10 @@
 
 package main
 
+import (
+	"fmt"
+)
+
 func osInit() bool {
 	return true
 }
@@ -27,7 +32,12 @@ func getTtyWidth() int {
 	return 80
 }
 
-func clearTty() {} // OS Specific
+func initTty(sc *sc_scan) {} // OS Specific
+
+func printProgress(sc *s_scan) {
+	n := sc.nErrors + sc.nItems
+	fmt.Printf("  [.... scanning... %6d  ....]\r", n)
+}
 
 // Disk usage is inaccurate because appropriate syscall is not yet implemented
 func sysStat(sc *s_scan, f *file) error {
