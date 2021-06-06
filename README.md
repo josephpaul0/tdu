@@ -33,6 +33,10 @@ Usage: tdu [options] [directory]
 ```
 ##Quick start guide for end users
 - If you just want to use the program on Linux or Windows x86-64, then you can download a ready-to-run binary at https://bitbucket.org/josephpaul0/tdu/downloads/
+- On the "Downloads" page, you will find packages for:
+	- Linux (386, Amd64, Armv6), including Raspberry Pi.
+	- Windows 7, 8, 10 (386, Amd64)
+	- FreeBSD 11 (386, Amd64)
 
 ##Quick start guide for advanced users / developers
 - You need a Go compiler
