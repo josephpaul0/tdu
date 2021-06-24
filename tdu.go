@@ -1,6 +1,6 @@
 /* Top Disk Usage.
- * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
- * https://bitbucket.org/josephpaul0/tdu
+ * Copyright (C) 2019-2021 Joseph Paul <joseph.paul1@gmx.com>
+ * https://github.com/josephpaul0/tdu
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,14 +38,14 @@ import (
 )
 
 const (
-	prg_VERSION       = "1.34"
+	prg_VERSION       = "1.36"
 	dft_MAXSHOWNLINES = 15
 	dft_MAXEMPTYDIRS  = 0
 	dft_MAXDENIEDDIRS = 0
 	dft_MAXSTATERROR  = 0
 	dft_MAXSTREAMS    = 0
 	dft_MAXDEVICES    = 0
-	dft_MAXBIGFILES   = 7
+	dft_MAXBIGFILES   = 8
 	cst_ENDPROGRESS   = "###"
 	cst_PROGRESSBEAT  = 80 // ms
 )
@@ -108,6 +108,7 @@ type s_scan struct { // Global variables
 	export        bool     // export result to Ncdu's JSON format
 	tty           bool     // stdout is on a TTY
 	humanReadable bool     // print sizes in human readable format
+	consoleMax    bool     // maximize size of console window (on Windows only)
 	exportPath    string   // path to exported file
 	exportFile    *os.File // exported file
 	deepestPath   string   // deepest subdirectory reached
@@ -337,13 +338,15 @@ func printFileTypes(sc *s_scan) { // Summary of file types with non-zero counter
 		fmt.Printf(", Symlink: %d", sc.nSymlinks)
 	}
 	if sc.nHardlinks > 0 {
-		fmt.Printf(", Hardlink: %d", sc.nHardlinks)
+		fmt.Printf(",\n  Hardlink: %d", sc.nHardlinks)
 	}
 	if sc.nSockets > 0 {
 		fmt.Printf(", Socket: %d", sc.nSockets)
 	}
 	if sc.nDenied > 0 {
-		fmt.Printf(", Denied: %d", sc.nDenied)
+		fmt.Printf(", ")
+		msg := fmt.Sprintf("Denied: %d", sc.nDenied)
+		printAlert(sc, msg)
 	}
 	if sc.nErrors > 0 {
 		fmt.Printf(", Error: %d", sc.nErrors)
@@ -609,7 +612,7 @@ func show(sc *s_scan, fi []file, total *file) {
 	nf := fmt.Sprintf("%%%ds", fmtNameLen+1)
 	cf := fmt.Sprintf("%%%ds", countDigits(total.diskUsage)+1)
 	mf := fmt.Sprintf("%%%dd", countDigits(sc.nItems)+1)
-	var strfmt = "%3d." + nf + "|" + cf + "|%6.2f%%"
+	var strfmt = "%3d." + nf + "|" + cf + "|%6.2f%%|"
 	i = 0
 	for _, f := range fi {
 		if !f.isDir && sc.nFiles == 0 { // ignore special files
@@ -629,7 +632,7 @@ func show(sc *s_scan, fi []file, total *file) {
 		}
 		fmt.Printf(strfmt, i, f.name, fmtSz(sc, f.diskUsage), p)
 		if f.isDir {
-			fmt.Printf("|"+mf+" items", f.items)
+			fmt.Printf(mf+" items", f.items)
 		}
 		fmt.Println()
 	}
@@ -640,8 +643,8 @@ func show(sc *s_scan, fi []file, total *file) {
 		fmt.Printf(s, "REMAINING", fmtSz(sc, rDiskUsage), p, rItems)
 	}
 	strfmt += "\n"
-	fmt.Printf(strfmt, "TOTAL", fmtSz(sc, total.diskUsage))
-	fmt.Printf(strfmt, "Apparent size", fmtSz(sc, total.size))
+	fmt.Printf(strfmt, "DISK SPACE", fmtSz(sc, total.diskUsage))
+	fmt.Printf(strfmt, "TOTAL SIZE", fmtSz(sc, total.size))
 	fmt.Println()
 	printFileTypes(sc)
 }
@@ -669,8 +672,8 @@ func changeDir(args []string) (string, error) {
 func usage(sc *s_scan) []string {
 	flag.Usage = func() {
 		showTitle()
-		fmt.Println(" Copyright (c) 2020 Joseph Paul <joseph.paul1@gmx.com>")
-		fmt.Println(" https://bitbucket.org/josephpaul0/tdu")
+		fmt.Println(" Copyright (c) 2019-2021 Joseph Paul <joseph.paul1@gmx.com>")
+		fmt.Println(" https://github.com/josephpaul0/tdu")
 		fmt.Println()
 		fmt.Printf(" Usage: %s [options] [directory]\n", os.Args[0])
 		fmt.Println()
@@ -691,7 +694,8 @@ func usage(sc *s_scan) []string {
 	nm := flag.Bool("max", false, "Show deepest and longest paths")
 	vs := flag.Bool("version", false, "Program info and usage")
 	sl := flag.Bool("license", false, "Show the GNU General Public License V2")
-	hu := flag.Bool("human", false, "Print sizes in human readable format")
+	hu := flag.Bool("human", true, "Print sizes in human readable format.\nUse --human=false to print in kilobytes instead.")
+	cm := flag.Bool("consolemax", false, "Maximize console window (on Windows only)")
 	flag.Parse() // NArg (int)
 	if *sl {
 		showLicense()
@@ -736,6 +740,7 @@ func usage(sc *s_scan) []string {
 	}
 	sc.showMax = *nm
 	sc.humanReadable = *hu
+	sc.consoleMax = *cm
 	if *ex != "" {
 		sc.export = true
 		sc.exportPath = *ex

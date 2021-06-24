@@ -1,4 +1,4 @@
-.TH TDU 1 "2020-06-10" "1.34" "Top Disk Usage manual"
+.TH TDU 1 "2021-06-24" "1.36" "Top Disk Usage manual"
 
 .SH NAME
 tdu \- get information about largest files and directories
@@ -22,9 +22,7 @@ or at current directory by default.
 .br
 * Counts empty directories, denied accesses, errors.
 .br
-* Shows deepest directory path.
-.br
-* Shows longest file path.
+* Shows deepest directory path and longest file path.
 .br
 * Displays information about the filesystem (type, mount options, size, inodes).
 
@@ -55,12 +53,17 @@ Number of sockets and named pipes shown (default 0)
 Number of file status errors shown (default 0)
 .TP
 .BR \-\-human
-Print sizes in human readable format (default Kb only)
+Print sizes in human readable format (default).
+.br
+Use \-\-human=false to print sizes in kilobytes.
 .TP
 .BI \-o \ file
 Export result to Ncdu JSON format
 .br
 (https://dev.yorhel.nl/ncdu/jsonfmt)
+.TP
+.BR \-\-consolemax
+Maximizes console window (Windows only, default no)
 .TP
 .BR \-\-version
 Program info and usage
@@ -76,14 +79,13 @@ Does not cross filesystem boundaries. It behaves like
 .B du \-skx
 
 .SH COPYRIGHT
-Copyright \(co 2019,2020 Joseph Paul <joseph.paul1@gmx.com>.
+Copyright \(co 2019-2021 Joseph Paul <joseph.paul1@gmx.com>.
 .br
 License GPLv2+: GNU GPL version 2 or later.
 
 .SH WEBSITE
-https://bitbucket.org/josephpaul0/tdu
+https://github.com/josephpaul0/tdu
 
 .SH "SEE ALSO"
 .BR du (1),
 .BR ncdu (1)
-

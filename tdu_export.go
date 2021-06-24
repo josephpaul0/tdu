@@ -1,6 +1,6 @@
 /* Top Disk Usage.
  * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
- * https://bitbucket.org/josephpaul0/tdu
+ * https://github.com/josephpaul0/tdu
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,7 +79,7 @@ func cleanName(s string) string {
 	rs := []rune(s)
 	rd := make([]rune, 0, len(s))
 	for i := 0; i < len(rs); i++ {
-		if rs[i] <= 31 || rs[i] == 127 {
+		if rs[i] <= 31 || rs[i] == 34 || rs[i] == 127 {
 			u := []rune(fmt.Sprintf("\\u00%02X", rs[i]))
 			rd = append(rd, u...)
 		} else {

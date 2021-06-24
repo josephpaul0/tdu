@@ -1,3 +1,13 @@
+2021-06-24  Version 1.36
+	* [Windows] Do not maximize console window by default
+	* [Windows] Fix maximize console bug
+	* [Windows] Detect that program is launched by powershell.exe or explorer.exe
+	* [UNIX] Reformat information about used inodes and partitions
+	* [JSON] Fix bug in Ncdu export when filename contains double quotes
+	* Show 8 biggest files by default (customizable)
+	* Display sizes in human readable format by default (customizable)
+	* Add Go module support
+
 2020-06-10  Version 1.34
 	* Add manual in PDF
 	* Add support for FreeBSD 11

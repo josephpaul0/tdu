@@ -2,7 +2,7 @@
 
 /* Top Disk Usage.
  * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
- * https://bitbucket.org/josephpaul0/tdu
+ * https://github.com/josephpaul0/tdu
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -222,6 +222,16 @@ func colorCyan()    { fmt.Printf(color_CYAN) }
 func colorMagenta() { fmt.Printf(color_MAGENTA) }
 func colorAlert()   { fmt.Printf(color_ALERT) }
 
+func printAlert(sc *s_scan, msg string) {
+	if sc.tty {
+		colorRed()
+	}
+	fmt.Printf(msg)
+	if sc.tty {
+		colorDefault()
+	}
+}
+
 func printProgress(sc *s_scan) {
 	if !sc.tty {
 		return
@@ -360,10 +370,8 @@ func partInfo(sc *s_scan) {
 	if total > 0 {
 		avail = uint64(statfs.Ffree)
 		used = total - avail
-		fmt.Printf("  Inodes  :%11d ", total)
-		fmt.Printf("Avail:%10d ", avail)
-		fmt.Printf("Used:%10d (%d%%)", used, used*100/total)
-		fmt.Println()
+		fmt.Printf("  Inodes  :%10d used (%2d%%) of %10d. Avail:%10d\n",
+			used, used*100/total, total, avail)
 	}
 	total = statfs.Blocks * uint64(statfs.Bsize)
 	if total > 0 {
@@ -373,13 +381,12 @@ func partInfo(sc *s_scan) {
 			total /= 1024
 			avail /= 1024
 			used /= 1024
-			fmt.Printf("  Size(kb):%11d ", total)
-			fmt.Printf("Avail:%10d ", avail)
-			fmt.Printf("Used:%10d (%d%%)\n", used, used*100/total)
+			fmt.Printf("  Size(kb):%10d used (%2d%%) of %10d. Avail:%10d\n",
+				used, used*100/total, int64(total), int64(avail))
 		} else {
-			fmt.Printf("  Size    :%11s ", fmtSz(sc, int64(total)))
-			fmt.Printf("Avail:%10s ", fmtSz(sc, int64(avail)))
-			fmt.Printf("Used:%10s (%d%%)\n", fmtSz(sc, int64(used)), used*100/total)
+			fmt.Printf("  Size    :%10s used (%2d%%) of %10s. Avail:%10s\n",
+				fmtSz(sc, int64(used)), used*100/total,
+				fmtSz(sc, int64(total)), fmtSz(sc, int64(avail)))
 		}
 	}
 	fmt.Println()

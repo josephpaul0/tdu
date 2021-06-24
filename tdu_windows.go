@@ -1,13 +1,38 @@
 // +build windows
 
 /* Top Disk Usage.
- * Copyright (C) 2019 Joseph Paul <joseph.paul1@gmx.com>
- * https://bitbucket.org/josephpaul0/tdu
+ * Copyright (C) 2019-2021 Joseph Paul <joseph.paul1@gmx.com>
+ * https://github.com/josephpaul0/tdu
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
+ */
+
+/*
+ * The part of the code that fetches processes under Windows
+ * is inspired by package https://github.com/mitchellh/go-ps
+ * Copyright (c) 2014 Mitchell Hashimoto
+ *
+ * The MIT License (MIT)
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
  */
 
 package main
@@ -21,9 +46,32 @@ import (
 	"unsafe"
 )
 
+// Some constants from the Windows API
+const (
+	ERROR_NO_MORE_FILES = 0x12
+	MAX_PATH            = 260
+)
+
 // Code inspired by termbox-go (https://github.com/nsf/termbox-go)
 // Code also copied from MinGW32 include files
 type (
+	procEntry32 struct { // WinAPI struct that contains a process's information.
+		Size              uint32
+		CntUsage          uint32
+		ProcessID         uint32
+		DefaultHeapID     uintptr
+		ModuleID          uint32
+		CntThreads        uint32
+		ParentProcessID   uint32
+		PriorityClassBase int32
+		Flags             uint32
+		ExeFile           [MAX_PATH]uint16
+	}
+	winProc struct { // Process for Windows.
+		pid  int
+		ppid int
+		exe  string
+	}
 	dynProc struct {
 		fx   *syscall.LazyProc
 		name string
@@ -88,6 +136,10 @@ const (
 	kSetConsoleScreenBufferSize   = "SetConsoleScreenBufferSize"
 	kSetConsoleTitleA             = "SetConsoleTitleA"
 	kSetConsoleWindowInfo         = "SetConsoleWindowInfo"
+	kCloseHandle                  = "CloseHandle"
+	kCreateToolhelp32Snapshot     = "CreateToolhelp32Snapshot"
+	kProcess32First               = "Process32FirstW"
+	kProcess32Next                = "Process32NextW"
 	uGetMonitorInfoW              = "GetMonitorInfoW"
 	uGetSystemMetrics             = "GetSystemMetrics"
 	uMonitorFromWindow            = "MonitorFromWindow"
@@ -153,11 +205,11 @@ func (w *win32) call(name string, a ...uintptr) (bool, uintptr) {
 	i := w.find(name)
 	p := w.procs[i].fx.Addr()
 	r, _, err := dyncall(p, a)
-	if r == 0 && name != uGetSystemMetrics { // ugly
+	if r == 0 && name != uGetSystemMetrics && name != kProcess32Next { // ugly
 		fmt.Printf("Win32 function '%s' failed", name)
 		fmt.Println()
 		fmt.Println(err)
-		time.Sleep(6 * time.Second)
+		time.Sleep(4 * time.Second)
 	}
 	return (r != 0), r
 }
@@ -191,6 +243,10 @@ func (w *win32) populate() {
 		kSetConsoleScreenBufferSize,
 		kSetConsoleTitleA,
 		kSetConsoleWindowInfo,
+		kCloseHandle,
+		kCreateToolhelp32Snapshot,
+		kProcess32First,
+		kProcess32Next,
 	}
 	uProcs := []string{
 		uGetMonitorInfoW,
@@ -272,7 +328,7 @@ func (w *win32) getWorkingArea() {
 	// fmt.Printf("Cols = %d, Rows = %d\n", max.x, max.y)
 }
 
-func (w *win32) updateConsole() bool { // Maximize Console
+func (w *win32) updateConsole(sc *s_scan) bool { // Maximize Console
 	b, r := w.getConsoleWindow()
 	if !b {
 		return false
@@ -295,16 +351,72 @@ func (w *win32) updateConsole() bool { // Maximize Console
 	if (w.max.x == 0) || (w.max.y == 0) {
 		return false
 	}
-	var size coord = w.max
-	size.y += 100
-	b, r = w.setConsoleScreenBufferSize(w.hOutput, size)
-	if !b {
-		return false
+	if sc.consoleMax {
+		w.max.x += 2
+		var size coord = w.max
+		size.y += 100
+		// fmt.Printf("coord = %v\n", size)
+		b, r = w.setConsoleScreenBufferSize(w.hOutput, size)
+		if !b {
+			return false
+		}
+		w.maximizeWindow(w.hConsole)
 	}
-	w.maximizeWindow(w.hConsole)
 	w.eraseScreen()
 	w.ttyWidth = int(w.max.x)
 	return true
+}
+
+func newProcess(e *procEntry32) *winProc {
+	// Find when the string ends for decoding
+	end := 0
+	for {
+		if e.ExeFile[end] == 0 {
+			break
+		}
+		end++
+	}
+	return &winProc{
+		pid:  int(e.ProcessID),
+		ppid: int(e.ParentProcessID),
+		exe:  syscall.UTF16ToString(e.ExeFile[:end]),
+	}
+}
+
+func (w *win32) findProcess(pid int) *winProc {
+	ps := w.listProcesses()
+	if ps == nil {
+		return nil
+	}
+	for _, p := range ps {
+		if p.pid == pid {
+			return p
+		}
+	}
+	return nil
+}
+
+func (w *win32) listProcesses() []*winProc {
+	b, h := w.call(kCreateToolhelp32Snapshot, 0x00000002)
+	if !b {
+		return nil
+	}
+	defer w.call(kCloseHandle, h)
+	var entry procEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	b, _ = w.process32First(h, &entry)
+	if !b {
+		return nil // "Error retrieving process info."
+	}
+	results := make([]*winProc, 0, 50)
+	for {
+		results = append(results, newProcess(&entry))
+		b, _ = w.process32Next(h, &entry)
+		if !b {
+			break
+		}
+	}
+	return results
 }
 
 func (w *win32) getStdHandle(h uint32) (bool, uintptr) {
@@ -330,6 +442,14 @@ func (w *win32) isRemoteSession() bool {
 func (w *win32) getFileType(h uintptr) int {
 	_, r := w.call(kGetFileType, h)
 	return int(r)
+}
+
+func (w *win32) process32First(h uintptr, m *procEntry32) (bool, uintptr) {
+	return w.call(kProcess32First, h, uintptr(unsafe.Pointer(m)))
+}
+
+func (w *win32) process32Next(h uintptr, m *procEntry32) (bool, uintptr) {
+	return w.call(kProcess32Next, h, uintptr(unsafe.Pointer(m)))
 }
 
 func (w *win32) getConsoleMode(h uintptr, m *uint32) (bool, uintptr) {
@@ -491,11 +611,26 @@ func initTty(sc *s_scan) {
 		}
 	}
 	if !w.fromCmdLine {
+		ps := w.findProcess(os.Getppid())
+		if ps != nil {
+			//fmt.Printf(" Parent id=%d name=%s\n", process.pid, process.exe)
+			if ps.exe == "explorer.exe" {
+				w.fromCmdLine = false
+			}
+			if ps.exe == "powershell.exe" {
+				w.fromCmdLine = true
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "   Fatal error, cannot find parent process?")
+			return
+		}
+	}
+	if !w.fromCmdLine {
 		fmt.Println()
 		fmt.Println("  This program should be run from the command line.")
 		w.pressAnyKey("  Press any key to continue...")
 	}
-	sc.tty = w.updateConsole()
+	sc.tty = w.updateConsole(sc)
 	sc.refreshDelay *= 3
 }
 
@@ -564,6 +699,17 @@ func (w *win32) color(attr uint16, l uint32) {
 	b, _ = w.call(f, w.hOutput, uintptr(char), uintptr(l), xy.uintptr(), parg)
 	if !b {
 		panic(f)
+	}
+}
+
+func printAlert(sc *s_scan, msg string) {
+	var c uint16
+	w := sc.sys.(*win32)
+	c = foreground_red
+	if sc.tty {
+		w.writeColored(c|foreground_intensity, msg)
+	} else {
+		fmt.Printf(msg)
 	}
 }
 
