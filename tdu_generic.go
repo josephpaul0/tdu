@@ -28,7 +28,7 @@ func osEnd() bool {
 }
 
 // Console width is fixed on other systems
-func getTtyWidth() int {
+func getTtyWidth(sc *s_scan) int {
 	return 80
 }
 
